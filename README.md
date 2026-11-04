@@ -21,7 +21,7 @@ Pilihan 2 — XAMPP:
 2. Jalankan Apache dari XAMPP Control Panel
 3. Buka browser: http://localhost/dasbor-bencana
 
-Catatan: Tailwind dan Chart.js dimuat dari CDN, jadi butuh internet saat dibuka.
+Catatan: Tailwind dan Chart.js sudah disertakan lokal di folder `assets/`, jadi dasbor ini **100% bisa dibuka tanpa internet**.
 
 ## Fitur
 - Filter jenis bencana, provinsi, dan rentang tahun

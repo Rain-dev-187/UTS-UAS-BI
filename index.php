@@ -76,10 +76,10 @@ function fmt($n) { return number_format($n, 0, ',', '.'); }
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dasbor Bencana Indonesia</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<script src="assets/tailwind.js"></script>
 <script>tailwind.config = { darkMode: "class" };</script>
 <script>if (localStorage.getItem("tema") === "gelap") document.documentElement.classList.add("dark");</script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="assets/chart.js"></script>
 </head>
 <body class="bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen">
 
