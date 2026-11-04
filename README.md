@@ -6,7 +6,9 @@ sebaran jenis bencana, 10 provinsi terbanyak, dan tabel kejadian dengan
 korban jiwa terbesar. Ada filter jenis bencana, provinsi, dan rentang tahun.
 
 ## Isi folder
-- `index.php` — halaman dasbor (membaca data.csv, agregasi di sisi server)
+- `index.php` — halaman dasbor (query SQL ke database SQLite)
+- `bencana.db` — database SQLite (17.878 baris, tabel `bencana`)
+- `import_csv.php` — membangun ulang `bencana.db` dari `data.csv` (jalankan: `php import_csv.php`)
 - `data.csv` — dataset bersih (26 kolom)
 
 ## Cara menjalankan (Windows, tanpa Docker)
@@ -28,4 +30,4 @@ Catatan: Tailwind dan Chart.js sudah disertakan lokal di folder `assets/`, jadi 
 - Tombol ganti tema terang/gelap (pilihan tersimpan otomatis)
 
 ## Teknologi
-PHP (fgetcsv + agregasi), Tailwind CSS (CDN), Chart.js (CDN). Tanpa database.
+PHP + PDO SQLite (agregasi dengan SQL: SUM, GROUP BY, ORDER BY), Tailwind CSS dan Chart.js dari folder `assets/` (offline).

@@ -1,29 +1,17 @@
 <?php
 // Dasbor Bencana Indonesia — PHP + Tailwind (CDN) + Chart.js (CDN)
-// Data: data.csv (dataset bencana BNPB/DIBI yang sudah dibersihkan, 17.878 baris)
+// Data: database SQLite bencana.db (dibangun dari data.csv oleh import_csv.php)
 
-$file = __DIR__ . '/data.csv';
-$rows = [];
-$fh = fopen($file, 'r');
-$header = fgetcsv($fh);
-$idx = array_flip($header);
-while (($r = fgetcsv($fh)) !== false) {
-    if (count($r) < count($header)) continue;
-    $rows[] = $r;
+$dbFile = __DIR__ . '/bencana.db';
+if (!file_exists($dbFile)) {
+    die('Database bencana.db belum ada. Jalankan dulu: php import_csv.php');
 }
-fclose($fh);
-
-function col($row, $idx, $name) { return $row[$idx[$name]] ?? ''; }
-function num($row, $idx, $name) { $v = col($row, $idx, $name); return is_numeric($v) ? (float)$v : 0; }
+$pdo = new PDO('sqlite:' . $dbFile);
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 // Daftar unik untuk filter
-$events = [];
-$provinces = [];
-foreach ($rows as $r) {
-    $events[col($r, $idx, 'Event')] = true;
-    $provinces[col($r, $idx, 'Province')] = true;
-}
-ksort($events); ksort($provinces);
+$events = $pdo->query('SELECT DISTINCT event FROM bencana ORDER BY event')->fetchAll(PDO::FETCH_COLUMN);
+$provinces = $pdo->query('SELECT DISTINCT province FROM bencana ORDER BY province')->fetchAll(PDO::FETCH_COLUMN);
 
 // Filter dari form (GET)
 $fEvent = $_GET['event'] ?? '';
@@ -31,42 +19,44 @@ $fProv  = $_GET['provinsi'] ?? '';
 $fFrom  = $_GET['dari'] ?? '';
 $fTo    = $_GET['sampai'] ?? '';
 
-$filtered = [];
-foreach ($rows as $r) {
-    $th = (int)num($r, $idx, 'Tahun');
-    if ($fEvent !== '' && col($r, $idx, 'Event') !== $fEvent) continue;
-    if ($fProv !== '' && col($r, $idx, 'Province') !== $fProv) continue;
-    if ($fFrom !== '' && $th < (int)$fFrom) continue;
-    if ($fTo !== '' && $th > (int)$fTo) continue;
-    $filtered[] = $r;
+$where = [];
+$params = [];
+if ($fEvent !== '') { $where[] = 'event = ?';    $params[] = $fEvent; }
+if ($fProv !== '')  { $where[] = 'province = ?'; $params[] = $fProv; }
+if ($fFrom !== '')  { $where[] = 'tahun >= ?';   $params[] = (int)$fFrom; }
+if ($fTo !== '')    { $where[] = 'tahun <= ?';   $params[] = (int)$fTo; }
+$w = $where ? (' WHERE ' . implode(' AND ', $where)) : '';
+
+function q($pdo, $sql, $params) {
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return $st;
 }
 
 // Agregasi KPI
-$kpi = ['events' => count($filtered), 'deaths' => 0, 'injured' => 0, 'affected' => 0, 'houses' => 0];
-$perYear = []; $perEvent = []; $perProv = [];
-foreach ($filtered as $r) {
-    $kpi['deaths']   += num($r, $idx, 'Deaths');
-    $kpi['injured']  += num($r, $idx, 'Injured');
-    $kpi['affected'] += num($r, $idx, 'Affected');
-    $kpi['houses']   += num($r, $idx, 'Houses Destroyed') + num($r, $idx, 'Houses Damaged');
-    $y = (int)num($r, $idx, 'Tahun');
-    $perYear[$y] = ($perYear[$y] ?? 0) + 1;
-    $e = col($r, $idx, 'Event');
-    $perEvent[$e] = ($perEvent[$e] ?? 0) + 1;
-    $p = col($r, $idx, 'Province');
-    $perProv[$p] = ($perProv[$p] ?? 0) + 1;
+$row = q($pdo, "SELECT COUNT(*) AS events, COALESCE(SUM(deaths),0) AS deaths,
+    COALESCE(SUM(injured),0) AS injured, COALESCE(SUM(affected),0) AS affected,
+    COALESCE(SUM(houses_destroyed),0) + COALESCE(SUM(houses_damaged),0) AS houses
+    FROM bencana$w", $params)->fetch(PDO::FETCH_ASSOC);
+$kpi = ['events' => (int)$row['events'], 'deaths' => $row['deaths'], 'injured' => $row['injured'],
+        'affected' => $row['affected'], 'houses' => $row['houses']];
+
+$perYear = [];
+foreach (q($pdo, "SELECT tahun, COUNT(*) AS c FROM bencana$w GROUP BY tahun ORDER BY tahun", $params) as $r) {
+    $perYear[(int)$r['tahun']] = (int)$r['c'];
 }
-ksort($perYear);
-arsort($perEvent);
-arsort($perProv);
-$topProv = array_slice($perProv, 0, 10, true);
+$perEvent = [];
+foreach (q($pdo, "SELECT event, COUNT(*) AS c FROM bencana$w GROUP BY event ORDER BY c DESC", $params) as $r) {
+    $perEvent[$r['event']] = (int)$r['c'];
+}
+$topProv = [];
+foreach (q($pdo, "SELECT province, COUNT(*) AS c FROM bencana$w GROUP BY province ORDER BY c DESC LIMIT 10", $params) as $r) {
+    $topProv[$r['province']] = (int)$r['c'];
+}
 
 // 10 kejadian dengan korban jiwa terbesar (sesuai filter)
-$top = $filtered;
-usort($top, function ($a, $b) use ($idx) {
-    return num($b, $idx, 'Deaths') <=> num($a, $idx, 'Deaths');
-});
-$top = array_slice($top, 0, 10);
+$top = q($pdo, "SELECT date_ymd, event, province, district, deaths, injured, affected
+    FROM bencana$w ORDER BY deaths DESC LIMIT 10", $params)->fetchAll(PDO::FETCH_ASSOC);
 
 function fmt($n) { return number_format($n, 0, ',', '.'); }
 ?>
@@ -99,7 +89,7 @@ function fmt($n) { return number_format($n, 0, ',', '.'); }
       <span class="text-sm font-medium">Jenis bencana</span>
       <select name="event" class="mt-1 w-full border rounded-lg px-2 py-2 dark:bg-slate-700 dark:border-slate-600">
         <option value="">Semua</option>
-        <?php foreach (array_keys($events) as $e): ?>
+        <?php foreach ($events as $e): ?>
           <option value="<?= htmlspecialchars($e) ?>" <?= $fEvent === $e ? 'selected' : '' ?>><?= htmlspecialchars($e) ?></option>
         <?php endforeach; ?>
       </select>
@@ -108,7 +98,7 @@ function fmt($n) { return number_format($n, 0, ',', '.'); }
       <span class="text-sm font-medium">Provinsi</span>
       <select name="provinsi" class="mt-1 w-full border rounded-lg px-2 py-2 dark:bg-slate-700 dark:border-slate-600">
         <option value="">Semua</option>
-        <?php foreach (array_keys($provinces) as $p): ?>
+        <?php foreach ($provinces as $p): ?>
           <option value="<?= htmlspecialchars($p) ?>" <?= $fProv === $p ? 'selected' : '' ?>><?= htmlspecialchars($p) ?></option>
         <?php endforeach; ?>
       </select>
@@ -177,13 +167,13 @@ function fmt($n) { return number_format($n, 0, ',', '.'); }
       <tbody>
       <?php foreach ($top as $r): ?>
         <tr class="border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700">
-          <td class="py-2 px-2 whitespace-nowrap"><?= htmlspecialchars(col($r, $idx, 'Date (YMD)')) ?></td>
-          <td class="py-2 px-2"><?= htmlspecialchars(col($r, $idx, 'Event')) ?></td>
-          <td class="py-2 px-2"><?= htmlspecialchars(col($r, $idx, 'Province')) ?></td>
-          <td class="py-2 px-2"><?= htmlspecialchars(col($r, $idx, 'District')) ?></td>
-          <td class="py-2 px-2 text-right"><?= fmt(num($r, $idx, 'Deaths')) ?></td>
-          <td class="py-2 px-2 text-right"><?= fmt(num($r, $idx, 'Injured')) ?></td>
-          <td class="py-2 px-2 text-right"><?= fmt(num($r, $idx, 'Affected')) ?></td>
+          <td class="py-2 px-2 whitespace-nowrap"><?= htmlspecialchars($r['date_ymd']) ?></td>
+          <td class="py-2 px-2"><?= htmlspecialchars($r['event']) ?></td>
+          <td class="py-2 px-2"><?= htmlspecialchars($r['province']) ?></td>
+          <td class="py-2 px-2"><?= htmlspecialchars($r['district'] ?? '') ?></td>
+          <td class="py-2 px-2 text-right"><?= fmt($r['deaths']) ?></td>
+          <td class="py-2 px-2 text-right"><?= fmt($r['injured']) ?></td>
+          <td class="py-2 px-2 text-right"><?= fmt($r['affected']) ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
